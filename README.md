@@ -1,18 +1,38 @@
-# Inferência Otimizada de LLM com Quantização em 4-bits
+# LLM 4-bit Quantized Inference
 
-Este repositório contém a implementação de um pipeline de inferência para modelos de linguagem de grande escala (LLMs) utilizando a biblioteca `transformers` da Hugging Face e técnicas de otimização de memória com `bitsandbytes`.
+Inferência de LLMs em 4-bit (NF4 + double quantization) com `bitsandbytes` e `transformers`, rodando em GPUs de consumo (ex.: T4 do Colab). Modelo padrão: `mistralai/Mistral-7B-Instruct-v0.2`.
 
-## Objetivo do Projeto
-Demonstrar a viabilidade de carregamento e execução de modelos de 7 Bilhões de parâmetros (como o Mistral-7B) em hardwares com restrição de VRAM (como GPUs de 15GB), garantindo eficiência de infraestrutura sem perda significativa de qualidade de geração.
+## Decisões técnicas
+| Tema | Decisão | Motivo |
+|---|---|---|
+| Quantização | NF4 + double quant | Menor uso de VRAM com perda mínima de qualidade |
+| Compute dtype | `bfloat16` se compute capability >= 8, senão `float16` | T4 (7.5) não tem bf16 nativo |
+| Amostragem | `do_sample=True` apenas se `temperature > 0` | `temperature` é ignorado sem sampling |
+| System prompt | Injetado na mensagem `user` | Template do Mistral v0.2 não aceita role `system` |
+| Segredos | `HF_TOKEN` via variável de ambiente | Nada de token no código |
 
-## Decisão Arquitetural: Por que 4-bit Quantization?
-Carregar um modelo 7B em precisão padrão (`float16`) consome aproximadamente 14-15GB de VRAM, deixando pouca margem para o processamento de contexto (janela de tokens), o que causa erros de Out-Of-Memory (OOM). 
+## Uso
+```bash
+pip install -r requirements.txt
+export HF_TOKEN=hf_xxx
+python llm_4bit_inference.py --prompt "Explique quantização em 1 parágrafo." --max-new-tokens 150
+```
+Como biblioteca:
+```python
+from llm_4bit_inference import load_model, generate
+tok, model = load_model()
+print(generate(tok, model, "Pergunta", system_prompt="Responda em pt-BR.", temperature=0.2))
+```
 
-Ao utilizar o `BitsAndBytesConfig` com formato `nf4` (NormalFloat4) e dupla quantização, comprimimos os pesos do modelo diretamente no carregamento. O impacto:
-* **Redução de VRAM:** De ~14GB para aproximadamente ~5GB.
-* **Escalabilidade:** Permite rodar LLMs poderosos em instâncias de nuvem mais baratas (como a T4 do Google Colab ou AWS `g4dn`), reduzindo os custos operacionais da infraestrutura de IA.
+## Testes
+```bash
+pytest -q
+```
 
-## Como Executar
-1. Instale as dependências:
-   ```bash
-   pip install transformers torch accelerate bitsandbytes huggingface_hub
+## Roadmap
+- [ ] Benchmark VRAM / latência / tokens/s: FP16 vs 8-bit vs NF4
+- [ ] Perplexity (WikiText) por nível de quantização
+- [ ] Fine-tuning QLoRA (peft + trl) e adapter publicado no Hugging Face
+
+## Requisitos
+GPU NVIDIA com CUDA (bitsandbytes 4-bit não roda em CPU).
